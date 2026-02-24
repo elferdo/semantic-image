@@ -1,0 +1,17 @@
+[package]
+name = "semanticimage"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.22.1"
+error-stack = "0.6.0"
+futures-lite = "2.6.1"
+rig-core = "0.31.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.22"
+walkdir = "2.5.0"
