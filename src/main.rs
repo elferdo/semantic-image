@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
@@ -16,12 +17,21 @@ use rig::{
 };
 use thiserror::Error;
 use tokio::task::JoinHandle;
+use tracing::instrument::WithSubscriber;
+use tracing::{debug, instrument};
+use tracing_subscriber::layer::SubscriberExt;
 use walkdir::WalkDir;
 
 #[derive(Debug, Error)]
 enum AppError {
     #[error("application error")]
     Error,
+
+    #[error("reading image")]
+    ImageReadError,
+
+    #[error("LLM agent error")]
+    LlmAgentError,
 }
 
 struct Agent {
@@ -35,17 +45,18 @@ struct ImageComment {
 }
 
 impl Agent {
+    #[instrument(err, skip(self))]
     async fn describe(&self, image_path: PathBuf) -> Result<ImageComment, Report<AppError>> {
         let comedian_agent = self.client
         .agent("gemma3")
-        .preamble("Describe the scene, including mood, places and people. Don't say what you are going to do and don't ask questions.")
+        .preamble("Describe the scene, including mood, places, prominent elements and people. Don't say what you are going to do and don't ask questions.")
         .build();
 
         let mut image = Image::default();
 
         let image_bytes = fs::read(&image_path)
             .await
-            .change_context(AppError::Error)?;
+            .change_context(AppError::ImageReadError)?;
 
         let image_base64 = BASE64_STANDARD.encode(image_bytes);
 
@@ -57,7 +68,7 @@ impl Agent {
         let comment = comedian_agent
             .prompt(image)
             .await
-            .change_context(AppError::Error)?;
+            .change_context(AppError::LlmAgentError)?;
 
         let result = ImageComment {
             path: image_path,
@@ -72,8 +83,7 @@ impl Agent {
 async fn main() -> Result<(), Report<AppError>> {
     tracing_subscriber::fmt().pretty().init();
 
-    tracing::info!("Hola");
-
+    // Ollama must be running locally
     let client: ollama::Client = ollama::Client::new(Nothing).unwrap();
 
     let agent = Agent { client };
@@ -83,14 +93,20 @@ async fn main() -> Result<(), Report<AppError>> {
         .filter_map(|entry| entry.map(|ed| agent.describe(ed.path().to_path_buf())).ok())
         .collect();
 
+    let mut h: HashMap<PathBuf, String> = HashMap::default();
+
     for e in entries {
         if let Ok(f) = e.await {
-            println!(
-                "{}",
-                serde_json::to_string(&f).change_context(AppError::Error)?
-            );
+            debug!("{:?}", f.path);
+
+            h.entry(f.path).or_insert(f.comment);
         }
     }
+
+    println!(
+        "{}",
+        serde_json::to_string(&h).change_context(AppError::Error)?
+    );
 
     Ok(())
 }
