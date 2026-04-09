@@ -1,8 +1,11 @@
+mod cli;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
+use clap::Parser;
 use serde::Serialize;
 use tokio::fs;
 
@@ -21,6 +24,8 @@ use tracing::instrument::WithSubscriber;
 use tracing::{debug, instrument};
 use tracing_subscriber::layer::SubscriberExt;
 use walkdir::WalkDir;
+
+use crate::cli::Args;
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -83,12 +88,14 @@ impl Agent {
 async fn main() -> Result<(), Report<AppError>> {
     tracing_subscriber::fmt().pretty().init();
 
+    let args = Args::parse();
+
     // Ollama must be running locally
     let client: ollama::Client = ollama::Client::new(Nothing).unwrap();
 
     let agent = Agent { client };
 
-    let entries: Vec<_> = WalkDir::new("/home/fernando/Fotos/JPEG")
+    let entries: Vec<_> = WalkDir::new(args.path)
         .into_iter()
         .filter_map(|entry| entry.map(|ed| agent.describe(ed.path().to_path_buf())).ok())
         .collect();
