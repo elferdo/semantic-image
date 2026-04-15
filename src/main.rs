@@ -6,10 +6,12 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use clap::Parser;
+use directories::ProjectDirs;
 use serde::Serialize;
 use tokio::fs;
 
 use error_stack::{IntoReport, Report, ResultExt};
+use persistent_kv::{Config, PersistentKeyValueStore};
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::embeddings::embedding::ImageEmbeddingModel;
@@ -27,6 +29,8 @@ use walkdir::WalkDir;
 
 use crate::cli::Args;
 
+type KVStore = PersistentKeyValueStore<u64, String>;
+
 #[derive(Debug, Error)]
 enum AppError {
     #[error("application error")]
@@ -40,6 +44,12 @@ enum AppError {
 
     #[error("extracting file extension from path")]
     FileExtension,
+
+    #[error("accessing application configuration directory")]
+    ConfigDir,
+
+    #[error("accessing persistent kv store for image descriptions")]
+    KVStoreAccess,
 }
 
 struct Agent {
@@ -97,11 +107,41 @@ fn is_file_extension_jpg(path: &Path) -> bool {
     })
 }
 
+fn init_data_dir() -> Result<PathBuf, Report<AppError>> {
+    let Some(user_dirs) = ProjectDirs::from("com", "fhcarron", env!("CARGO_PKG_NAME")) else {
+        return Err(AppError::ConfigDir.into_report());
+    };
+
+    let d = user_dirs.data_local_dir().to_owned();
+
+    if let Ok(exists) = d.try_exists() {
+        if !exists {
+            std::fs::create_dir(&d).change_context(AppError::ConfigDir)?;
+
+            eprintln!("Created data directory {}", d.display());
+        }
+
+        Ok(d)
+    } else {
+        Err(AppError::ConfigDir.into_report())
+    }
+}
+
+fn open_kv_store(path: &Path) -> Result<KVStore, Report<AppError>> {
+    let store = PersistentKeyValueStore::new(path.join("kvstore"), Config::default())
+        .map_err(|_| AppError::KVStoreAccess)?;
+
+    Ok(store)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Report<AppError>> {
     tracing_subscriber::fmt().pretty().init();
 
     let args = Args::parse();
+
+    let data_dir = init_data_dir()?;
+    let mut _kvstore = open_kv_store(&data_dir)?;
 
     // Ollama must be running locally
     let client: ollama::Client = ollama::Client::new(Nothing).unwrap();
