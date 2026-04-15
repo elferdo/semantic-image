@@ -9,7 +9,7 @@ use clap::Parser;
 use serde::Serialize;
 use tokio::fs;
 
-use error_stack::{Report, ResultExt};
+use error_stack::{IntoReport, Report, ResultExt};
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::embeddings::embedding::ImageEmbeddingModel;
@@ -37,6 +37,9 @@ enum AppError {
 
     #[error("LLM agent error")]
     LlmAgentError,
+
+    #[error("extracting file extension from path")]
+    FileExtension,
 }
 
 struct Agent {
@@ -84,6 +87,16 @@ impl Agent {
     }
 }
 
+fn is_file_extension_jpg(path: &Path) -> bool {
+    matches!(path.extension(), Some(extension) if {
+        if extension.to_ascii_lowercase() == "jpg" || extension.to_ascii_lowercase() == "jpeg" {
+            true
+        } else {
+            false
+        }
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Report<AppError>> {
     tracing_subscriber::fmt().pretty().init();
@@ -97,6 +110,10 @@ async fn main() -> Result<(), Report<AppError>> {
 
     let entries: Vec<_> = WalkDir::new(args.path)
         .into_iter()
+        .filter(|e| {
+            e.as_ref()
+                .is_ok_and(|dir_entry| is_file_extension_jpg(dir_entry.path()))
+        })
         .filter_map(|entry| entry.map(|ed| agent.describe(ed.path().to_path_buf())).ok())
         .collect();
 
