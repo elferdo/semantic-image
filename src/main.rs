@@ -107,6 +107,12 @@ fn is_file_extension_jpg(path: &Path) -> bool {
     })
 }
 
+fn is_file_already_described(path: &Path, description_store: &KVStore) -> Result<bool, AppError> {
+    let description_exists = description_store.get(&path.to_string_lossy().to_string());
+
+    Ok(description_exists.is_some())
+}
+
 fn init_data_dir() -> Result<PathBuf, Report<AppError>> {
     let Some(user_dirs) = ProjectDirs::from("com", "fhcarron", env!("CARGO_PKG_NAME")) else {
         return Err(AppError::ConfigDir.into_report());
@@ -153,6 +159,11 @@ async fn main() -> Result<(), Report<AppError>> {
         .filter(|e| {
             e.as_ref()
                 .is_ok_and(|dir_entry| is_file_extension_jpg(dir_entry.path()))
+        })
+        .filter(|e| {
+            e.as_ref().is_ok_and(|dir_entry| {
+                !is_file_already_described(dir_entry.path(), &description_store).expect("may fail")
+            })
         })
         .filter_map(|entry| entry.map(|ed| agent.describe(ed.path().to_path_buf())).ok())
         .collect();
