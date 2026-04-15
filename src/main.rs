@@ -29,7 +29,7 @@ use walkdir::WalkDir;
 
 use crate::cli::Args;
 
-type KVStore = PersistentKeyValueStore<u64, String>;
+type KVStore = PersistentKeyValueStore<String, String>;
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -141,7 +141,7 @@ async fn main() -> Result<(), Report<AppError>> {
     let args = Args::parse();
 
     let data_dir = init_data_dir()?;
-    let mut _kvstore = open_kv_store(&data_dir)?;
+    let description_store = open_kv_store(&data_dir)?;
 
     // Ollama must be running locally
     let client: ollama::Client = ollama::Client::new(Nothing).unwrap();
@@ -157,20 +157,15 @@ async fn main() -> Result<(), Report<AppError>> {
         .filter_map(|entry| entry.map(|ed| agent.describe(ed.path().to_path_buf())).ok())
         .collect();
 
-    let mut h: HashMap<PathBuf, String> = HashMap::default();
-
     for e in entries {
         if let Ok(f) = e.await {
             debug!("{:?}", f.path);
 
-            h.entry(f.path).or_insert(f.comment);
+            description_store
+                .set(f.path.to_string_lossy().to_string(), f.comment)
+                .expect("why is this failing?");
         }
     }
-
-    println!(
-        "{}",
-        serde_json::to_string(&h).change_context(AppError::Error)?
-    );
 
     Ok(())
 }
